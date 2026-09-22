@@ -184,3 +184,29 @@ export const logout = async (req, res) => {
     });
   }
 };
+
+
+
+export const getTeachersForAdmin = async (req, res) => {
+  try {
+    const teachers = await User.find({
+      role: { $in: ["teacher", "scholar"] },
+      isActive: true,
+    })
+      .select("name email role")
+      .sort({ name: 1 });
+
+    return res.status(200).json({
+      success: true,
+      count: teachers.length,
+      teachers,
+    });
+  } catch (error) {
+    console.error("Get Teachers Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+};
