@@ -5,6 +5,9 @@ import cookieParser from "cookie-parser";
 import auth_router from "./routes/auth.routes.js";
 import course_router from "./routes/course.route.js";
 import enrollment_router from "./routes/enrollment.routes.js";
+import lesson_router from "./routes/lesson.routes.js"
+import teacher_router from "./routes/teacher.routes.js";
+import class_routes from "./routes/class.routes.js"
 
 const app = express();
 
@@ -66,5 +69,8 @@ app.get("/", (req, res) => {
 app.use("/api/auth", auth_router);
 app.use("/api/courses" , course_router);
 app.use("/api/enrollments" , enrollment_router)
+app.use("/api/lessons" , lesson_router)
+app.use("/api/teacher" , teacher_router)
+app.use("/api/classes" , class_routes)
 
 export default app;

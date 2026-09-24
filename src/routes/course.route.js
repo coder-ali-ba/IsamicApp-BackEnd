@@ -7,6 +7,8 @@ import {
   updateCourse,
   deleteCourse,
   getAllCoursesForAdmin,
+  getMyTeacherCourses,
+  getTeacherCourseById,
 } from "../controllers/course.controllers.js";
 
 import {
@@ -22,6 +24,21 @@ const router = express.Router();
 
 // Get published courses
 router.get("/", getCourses);
+
+//Get For Teacher Courses
+router.get(
+  "/teacher/my",
+  requireAuth,
+  requireRole("teacher", "scholar"),
+  getMyTeacherCourses
+);
+
+router.get(
+  "/teacher/my/:courseId",
+  requireAuth,
+  requireRole("teacher", "scholar"),
+  getTeacherCourseById
+);
 
 
 /* =========================
@@ -69,5 +86,7 @@ router.delete(
 // Get single published course
 // Keep this AFTER /admin
 router.get("/:courseId", getCourseById);
+
+
 
 export default router;

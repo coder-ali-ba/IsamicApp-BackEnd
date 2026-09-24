@@ -1,6 +1,9 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User  from "../models/Users.js"
+import Course from "../models/Course.js";
+import Enrollment from "../models/Enrollment.js";
+import Class from "../models/Class.js";
 
 const generateToken = (userId) => {
   return jwt.sign(
@@ -207,6 +210,344 @@ export const getTeachersForAdmin = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Something went wrong",
+    });
+  }
+};
+
+
+export const getAllUsersForAdmin = async (req, res) => {
+  try {
+    const { search = "", role = "", status = "" } = req.query;
+
+    const query = {};
+
+    if (role) {
+      query.role = role;
+    }
+
+    if (status === "active") {
+      query.isActive = true;
+    }
+
+    if (status === "inactive") {
+      query.isActive = false;
+    }
+
+    if (search.trim()) {
+      query.$or = [
+        {
+          name: {
+            $regex: search.trim(),
+            $options: "i",
+          },
+        },
+        {
+          email: {
+            $regex: search.trim(),
+            $options: "i",
+          },
+        },
+      ];
+    }
+
+    const users = await User.find(query)
+      .select("-password")
+      .sort({ createdAt: -1 });
+
+    const [
+      totalUsers,
+      students,
+      teachers,
+      scholars,
+      admins,
+      activeUsers,
+      inactiveUsers,
+    ] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ role: "student" }),
+      User.countDocuments({ role: "teacher" }),
+      User.countDocuments({ role: "scholar" }),
+      User.countDocuments({ role: "admin" }),
+      User.countDocuments({ isActive: true }),
+      User.countDocuments({ isActive: false }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      users,
+      stats: {
+        totalUsers,
+        students,
+        teachers,
+        scholars,
+        admins,
+        activeUsers,
+        inactiveUsers,
+      },
+    });
+  } catch (error) {
+    console.error("Get All Users Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+};
+
+export const updateUserRoleByAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role } = req.body;
+
+    const allowedRoles = [
+      "student",
+      "teacher",
+      "scholar",
+      "admin",
+    ];
+
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid role",
+      });
+    }
+
+    // Admin apna khud ka role change nahi kar sakta
+    if (req.user._id.toString() === userId) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot change your own role",
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    user.role = role;
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "User role updated successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        isVerified: user.isVerified,
+      },
+    });
+  } catch (error) {
+    console.error("Update User Role Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+};
+
+export const updateUserStatusByAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { isActive } = req.body;
+
+    if (typeof isActive !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "isActive must be a boolean",
+      });
+    }
+
+    // Admin apna account deactivate nahi kar sakta
+    if (req.user._id.toString() === userId) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot change your own account status",
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    user.isActive = isActive;
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: isActive
+        ? "User activated successfully"
+        : "User deactivated successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        isVerified: user.isVerified,
+      },
+    });
+  } catch (error) {
+    console.error("Update User Status Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+};
+
+export const getAdminDashboard = async (req, res) => {
+  try {
+    const now = new Date();
+
+    const [
+      totalStudents,
+      totalTeachers,
+      totalScholars,
+      totalCourses,
+      publishedCourses,
+      totalClasses,
+      allScheduledClasses,
+      recentEnrollments,
+      upcomingClasses,
+    ] = await Promise.all([
+      User.countDocuments({
+        role: "student",
+      }),
+
+      User.countDocuments({
+        role: "teacher",
+        isActive: true,
+      }),
+
+      User.countDocuments({
+        role: "scholar",
+        isActive: true,
+      }),
+
+      Course.countDocuments(),
+
+      Course.countDocuments({
+        status: "Published",
+      }),
+
+      Class.countDocuments(),
+
+      Class.find({
+        status: "scheduled",
+      }).select(
+        "scheduledAt durationMinutes"
+      ),
+
+      Enrollment.find()
+        .populate(
+          "student",
+          "name email"
+        )
+        .populate(
+          "course",
+          "title"
+        )
+        .sort({
+          createdAt: -1,
+        })
+        .limit(5)
+        .lean(),
+
+      Class.find({
+        status: "scheduled",
+        scheduledAt: {
+          $gt: now,
+        },
+      })
+        .populate(
+          "teacher",
+          "name email role"
+        )
+        .sort({
+          scheduledAt: 1,
+        })
+        .limit(5)
+        .lean(),
+    ]);
+
+    // Calculate currently live classes
+    const liveClasses = allScheduledClasses.filter(
+      (classItem) => {
+        const startTime = new Date(
+          classItem.scheduledAt
+        ).getTime();
+
+        const endTime =
+          startTime +
+          classItem.durationMinutes *
+            60 *
+            1000;
+
+        const currentTime = now.getTime();
+
+        return (
+          currentTime >= startTime &&
+          currentTime <= endTime
+        );
+      }
+    ).length;
+
+    return res.status(200).json({
+      success: true,
+
+      stats: {
+        totalStudents,
+
+        totalTeachers,
+
+        totalScholars,
+
+        totalTeachersAndScholars:
+          totalTeachers +
+          totalScholars,
+
+        totalCourses,
+
+        publishedCourses,
+
+        totalClasses,
+
+        liveClasses,
+      },
+
+      recentEnrollments,
+
+      upcomingClasses,
+    });
+  } catch (error) {
+    console.error(
+      "Admin Dashboard Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Failed to load admin dashboard",
     });
   }
 };

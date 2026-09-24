@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const courseSchema = new mongoose.Schema(
+const classSchema = new mongoose.Schema(
   {
     title: {
       type: String,
@@ -12,15 +12,16 @@ const courseSchema = new mongoose.Schema(
 
     description: {
       type: String,
-      required: true,
       trim: true,
       maxlength: 2000,
+      default: "",
     },
 
     category: {
       type: String,
       enum: [
         "Quran",
+        "Tajweed",
         "Hadith",
         "Arabic",
         "Fiqh",
@@ -36,49 +37,44 @@ const courseSchema = new mongoose.Schema(
       required: true,
     },
 
-    instructor: {
+    teacher: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
 
-    duration: {
-      type: String,
+    scheduledAt: {
+      type: Date,
       required: true,
+      index: true,
     },
 
-    lessons: {
+    durationMinutes: {
       type: Number,
       required: true,
-      min: 0,
+      min: 15,
+      max: 240,
     },
 
-    students: {
+    maxStudents: {
       type: Number,
-      default: 0,
-      min: 0,
+      required: true,
+      min: 1,
+      max: 500,
     },
 
-    price: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
-    image: {
+    meetingUrl: {
       type: String,
+      trim: true,
       default: "",
-    },
-
-    featured: {
-      type: Boolean,
-      default: false,
     },
 
     status: {
       type: String,
-      enum: ["Draft", "Published"],
-      default: "Draft",
+      enum: ["Scheduled", "Cancelled", "Completed"],
+      default: "Scheduled",
+      index: true,
     },
   },
   {
@@ -86,7 +82,8 @@ const courseSchema = new mongoose.Schema(
   }
 );
 
-const Course = mongoose.model("Course", courseSchema);
+const Class =
+  mongoose.models.Class ||
+  mongoose.model("Class", classSchema);
 
-export default Course;
-
+export default Class;
