@@ -107,3 +107,74 @@ export const getMyEnrollments = async (req, res) => {
     });
   }
 };
+
+/* GET ALL ENROLLMENTS - ADMIN */
+export const getAllEnrollmentsForAdmin = async (req, res) => {
+  try {
+    const { search, status, course } = req.query;
+
+    const filter = {};
+
+    if (status && status !== "All") {
+      filter.status = status;
+    }
+
+    if (course && course !== "All") {
+      filter.course = course;
+    }
+
+    const enrollments = await Enrollment.find(filter)
+      .populate(
+        "student",
+        "name email role isActive"
+      )
+      .populate(
+        "course",
+        "title category level price status"
+      )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    let filteredEnrollments = enrollments;
+
+    if (search) {
+      const searchText = search
+        .toLowerCase()
+        .trim();
+
+      filteredEnrollments =
+        enrollments.filter((enrollment) => {
+          const studentName =
+            enrollment.student?.name?.toLowerCase() || "";
+
+          const studentEmail =
+            enrollment.student?.email?.toLowerCase() || "";
+
+          const courseTitle =
+            enrollment.course?.title?.toLowerCase() || "";
+
+          return (
+            studentName.includes(searchText) ||
+            studentEmail.includes(searchText) ||
+            courseTitle.includes(searchText)
+          );
+        });
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: filteredEnrollments.length,
+      enrollments: filteredEnrollments,
+    });
+  } catch (error) {
+    console.error(
+      "Get All Enrollments Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load enrollments",
+    });
+  }
+};

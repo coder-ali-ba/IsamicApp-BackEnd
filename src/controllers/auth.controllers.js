@@ -196,7 +196,7 @@ export const getTeachersForAdmin = async (req, res) => {
       role: { $in: ["teacher", "scholar"] },
       isActive: true,
     })
-      .select("name email role")
+      .select("name email role isActive")
       .sort({ name: 1 });
 
     return res.status(200).json({
@@ -548,6 +548,113 @@ export const getAdminDashboard = async (req, res) => {
       success: false,
       message:
         "Failed to load admin dashboard",
+    });
+  }
+};
+
+export const getTeacherByIdForAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const teacher = await User.findOne({
+      _id: userId,
+      role: { $in: ["teacher", "scholar"] },
+    }).select(
+      "name email role  createdAt"
+    );
+
+    if (!teacher) {
+      return res.status(404).json({
+        success: false,
+        message: "Teacher or scholar not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      teacher,
+    });
+  } catch (error) {
+    console.error("Get Teacher By ID Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+};
+
+export const updateTeacherByAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { name, email, role } = req.body;
+
+    const allowedRoles = ["teacher", "scholar"];
+
+    if (!name || !email || !role) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email and role are required",
+      });
+    }
+
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid teacher role",
+      });
+    }
+
+    const teacher = await User.findOne({
+      _id: userId,
+      role: { $in: ["teacher", "scholar"] },
+    });
+
+    if (!teacher) {
+      return res.status(404).json({
+        success: false,
+        message: "Teacher or scholar not found",
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const emailExists = await User.findOne({
+      email: normalizedEmail,
+      _id: { $ne: userId },
+    });
+
+    if (emailExists) {
+      return res.status(409).json({
+        success: false,
+        message: "Email is already in use",
+      });
+    }
+
+    teacher.name = name.trim();
+    teacher.email = normalizedEmail;
+    teacher.role = role;
+
+    await teacher.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Teacher profile updated successfully",
+      teacher: {
+        id: teacher._id,
+        name: teacher.name,
+        email: teacher.email,
+        role: teacher.role,
+        isActive: teacher.isActive,
+        isVerified: teacher.isVerified,
+      },
+    });
+  } catch (error) {
+    console.error("Update Teacher Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong",
     });
   }
 };

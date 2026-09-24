@@ -2,6 +2,7 @@ import express from "express";
 
 import {
   enrollInCourse,
+  getAllEnrollmentsForAdmin,
   getMyEnrollments,
 } from "../controllers/enrollment.controllers.js";
 
@@ -24,6 +25,14 @@ router.get(
   requireAuth,
   requireRole("student"),
   getMyEnrollments
+);
+
+// ADMIN
+router.get(
+  "/admin",
+  requireAuth,
+  requireRole("admin"),
+  getAllEnrollmentsForAdmin
 );
 
 export default router;

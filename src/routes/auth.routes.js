@@ -1,5 +1,5 @@
 import express from "express";
-import { getAdminDashboard, getAllUsersForAdmin, getMe, getTeachersForAdmin, login, logout, register, updateUserRoleByAdmin, updateUserStatusByAdmin } from "../controllers/auth.controllers.js";
+import { getAdminDashboard, getAllUsersForAdmin, getMe, getTeacherByIdForAdmin, getTeachersForAdmin, login, logout, register, updateTeacherByAdmin, updateUserRoleByAdmin, updateUserStatusByAdmin } from "../controllers/auth.controllers.js";
 import { loginLimiter } from "../middlewares/rateLimit.middleware.js";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware.js";
 
@@ -32,11 +32,27 @@ auth_router.get(
   getAdminDashboard
 );
 
+
+
 auth_router.patch(
   "/admin/users/:userId/role",
   requireAuth,
   requireRole("admin"),
   updateUserRoleByAdmin
+);
+
+auth_router.get(
+  "/admin/teachers/:userId",
+  requireAuth,
+  requireRole("admin"),
+  getTeacherByIdForAdmin
+);
+
+auth_router.patch(
+  "/admin/teachers/:userId",
+  requireAuth,
+  requireRole("admin"),
+  updateTeacherByAdmin
 );
 
 auth_router.patch(
