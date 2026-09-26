@@ -10,6 +10,8 @@ import teacher_router from "./routes/teacher.routes.js";
 import class_routes from "./routes/class.routes.js"
 import fatwaRouter from "./routes/fatwa.routes.js";
 import message_router from "./routes/message.routes.js"
+import settings_router from "./routes/settings.routes.js";
+import teacher_students_router from "./routes/teacher.students.routes.js"
 
 const app = express();
 
@@ -75,6 +77,8 @@ app.use("/api/lessons" , lesson_router)
 app.use("/api/teacher" , teacher_router)
 app.use("/api/classes" , class_routes)
 app.use("/api/fatwas" , fatwaRouter);
-app.use("/api/messages" , message_router)
+app.use("/api/messages" , message_router);
+app.use("/api/settings" , settings_router)
+app.use("/api/teacher/students" , teacher_students_router)
 
 export default app;

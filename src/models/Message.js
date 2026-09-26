@@ -2,7 +2,15 @@ import mongoose from "mongoose";
 
 const messageSchema = new mongoose.Schema(
   {
+    // User who sent the message
     sender: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    // User who receives the message
+    recipient: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
@@ -38,7 +46,15 @@ const messageSchema = new mongoose.Schema(
       maxlength: 5000,
     },
 
+    // Admin's read status for incoming messages
     status: {
+      type: String,
+      enum: ["unread", "read"],
+      default: "unread",
+    },
+
+    // Recipient's read status for admin-sent messages
+    recipientStatus: {
       type: String,
       enum: ["unread", "read"],
       default: "unread",
@@ -50,11 +66,13 @@ const messageSchema = new mongoose.Schema(
 );
 
 messageSchema.index({ status: 1 });
+messageSchema.index({ recipientStatus: 1 });
 messageSchema.index({ createdAt: -1 });
 messageSchema.index({ email: 1 });
+messageSchema.index({ sender: 1 });
+messageSchema.index({ recipient: 1 });
 
 const Message =
-  mongoose.models.Message ||
-  mongoose.model("Message", messageSchema);
+  mongoose.models.Message || mongoose.model("Message", messageSchema);
 
 export default Message;

@@ -2,11 +2,20 @@ import express from "express";
 
 import {
   createMessage,
+  createAdminMessage,
+  getMessageRecipientsForAdmin,
   getAllMessagesForAdmin,
   getMessageByIdForAdmin,
   markMessageAsRead,
   markMessageAsUnread,
   deleteMessageByAdmin,
+  getMessageRecipientsForTeacher,
+  createTeacherMessage,
+  getMessagesForTeacher,
+  getMessageByIdForTeacher,
+  markTeacherMessageAsRead,
+  markTeacherMessageAsUnread,
+  deleteMessageByTeacher,
 } from "../controllers/message.controllers.js";
 
 import {
@@ -16,21 +25,38 @@ import {
 
 const router = express.Router();
 
-/*
-|--------------------------------------------------------------------------
-| Public / User
-|--------------------------------------------------------------------------
-*/
 
-router.post("/", createMessage);
+/* =========================================================
+   Public / User
+========================================================= */
+
+router.post(
+  "/",
+  createMessage
+);
 
 
-/*
-|--------------------------------------------------------------------------
-| Admin
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   Admin
+========================================================= */
 
+// Get users that admin can message
+router.get(
+  "/admin/recipients",
+  requireAuth,
+  requireRole("admin"),
+  getMessageRecipientsForAdmin
+);
+
+// Admin sends a new message
+router.post(
+  "/admin",
+  requireAuth,
+  requireRole("admin"),
+  createAdminMessage
+);
+
+// Get all messages
 router.get(
   "/admin",
   requireAuth,
@@ -38,6 +64,7 @@ router.get(
   getAllMessagesForAdmin
 );
 
+// Get single message
 router.get(
   "/admin/:messageId",
   requireAuth,
@@ -45,6 +72,7 @@ router.get(
   getMessageByIdForAdmin
 );
 
+// Mark as read
 router.patch(
   "/admin/:messageId/read",
   requireAuth,
@@ -52,6 +80,7 @@ router.patch(
   markMessageAsRead
 );
 
+// Mark as unread
 router.patch(
   "/admin/:messageId/unread",
   requireAuth,
@@ -59,11 +88,74 @@ router.patch(
   markMessageAsUnread
 );
 
+// Delete
 router.delete(
   "/admin/:messageId",
   requireAuth,
   requireRole("admin"),
   deleteMessageByAdmin
 );
+
+
+/* =========================================================
+   Teacher / Scholar
+========================================================= */
+
+// Get available recipients
+router.get(
+  "/teacher/recipients",
+  requireAuth,
+  requireRole("teacher", "scholar"),
+  getMessageRecipientsForTeacher
+);
+
+// Send message
+router.post(
+  "/teacher",
+  requireAuth,
+  requireRole("teacher", "scholar"),
+  createTeacherMessage
+);
+
+// Get inbox / sent / all messages
+router.get(
+  "/teacher",
+  requireAuth,
+  requireRole("teacher", "scholar"),
+  getMessagesForTeacher
+);
+
+// Get single message
+router.get(
+  "/teacher/:messageId",
+  requireAuth,
+  requireRole("teacher", "scholar"),
+  getMessageByIdForTeacher
+);
+
+// Mark read
+router.patch(
+  "/teacher/:messageId/read",
+  requireAuth,
+  requireRole("teacher", "scholar"),
+  markTeacherMessageAsRead
+);
+
+// Mark unread
+router.patch(
+  "/teacher/:messageId/unread",
+  requireAuth,
+  requireRole("teacher", "scholar"),
+  markTeacherMessageAsUnread
+);
+
+// Delete own message
+router.delete(
+  "/teacher/:messageId",
+  requireAuth,
+  requireRole("teacher", "scholar"),
+  deleteMessageByTeacher
+);
+
 
 export default router;
