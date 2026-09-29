@@ -13,6 +13,12 @@ import {
   createAdminClass,
   updateAdminClass,
   deleteAdminClass,
+
+  cancelStudentEnrollment,
+  enrollStudentInClass,
+  getStudentClassById,
+  getMyStudentClasses,
+  getStudentClasses,
 } from "../controllers/class.controllers.js";
 
 import {
@@ -31,9 +37,9 @@ const teacherAccess = [
   requireRole("teacher", "scholar"),
 ];
 
-/* --------------------------------
+/* ------------------------------------------------
    Teacher Classes
--------------------------------- */
+------------------------------------------------ */
 
 router.get(
   "/teacher/my",
@@ -65,6 +71,7 @@ router.delete(
   deleteTeacherClass
 );
 
+
 /* ================================================================
    ADMIN ACCESS
 ================================================================ */
@@ -74,12 +81,9 @@ const adminAccess = [
   requireRole("admin"),
 ];
 
-/* --------------------------------
+/* ------------------------------------------------
    Admin: Teachers / Scholars
-   IMPORTANT:
-   This route must appear before
-   /admin/:classId
--------------------------------- */
+------------------------------------------------ */
 
 router.get(
   "/admin/teachers",
@@ -87,9 +91,9 @@ router.get(
   getClassTeachersForAdmin
 );
 
-/* --------------------------------
+/* ------------------------------------------------
    Admin: All Classes
--------------------------------- */
+------------------------------------------------ */
 
 router.get(
   "/admin",
@@ -97,9 +101,9 @@ router.get(
   getAdminClasses
 );
 
-/* --------------------------------
+/* ------------------------------------------------
    Admin: Create Class
--------------------------------- */
+------------------------------------------------ */
 
 router.post(
   "/admin",
@@ -107,9 +111,9 @@ router.post(
   createAdminClass
 );
 
-/* --------------------------------
+/* ------------------------------------------------
    Admin: Single Class
--------------------------------- */
+------------------------------------------------ */
 
 router.get(
   "/admin/:classId",
@@ -117,9 +121,9 @@ router.get(
   getAdminClassById
 );
 
-/* --------------------------------
+/* ------------------------------------------------
    Admin: Update Class
--------------------------------- */
+------------------------------------------------ */
 
 router.put(
   "/admin/:classId",
@@ -127,14 +131,74 @@ router.put(
   updateAdminClass
 );
 
-/* --------------------------------
+/* ------------------------------------------------
    Admin: Delete Class
--------------------------------- */
+------------------------------------------------ */
 
 router.delete(
   "/admin/:classId",
   ...adminAccess,
   deleteAdminClass
+);
+
+
+/* ================================================================
+   STUDENT ACCESS
+================================================================ */
+
+const studentAccess = [
+  requireAuth,
+  requireRole("student"),
+];
+
+/* ------------------------------------------------
+   Available Classes
+------------------------------------------------ */
+
+router.get(
+  "/",
+  ...studentAccess,
+  getStudentClasses
+);
+
+/* ------------------------------------------------
+   My Enrolled Classes
+------------------------------------------------ */
+
+router.get(
+  "/my",
+  ...studentAccess,
+  getMyStudentClasses
+);
+
+/* ------------------------------------------------
+   Single Class
+------------------------------------------------ */
+
+router.get(
+  "/:classId",
+  ...studentAccess,
+  getStudentClassById
+);
+
+/* ------------------------------------------------
+   Enroll
+------------------------------------------------ */
+
+router.post(
+  "/:classId/enroll",
+  ...studentAccess,
+  enrollStudentInClass
+);
+
+/* ------------------------------------------------
+   Cancel Enrollment
+------------------------------------------------ */
+
+router.patch(
+  "/:classId/cancel",
+  ...studentAccess,
+  cancelStudentEnrollment
 );
 
 export default router;

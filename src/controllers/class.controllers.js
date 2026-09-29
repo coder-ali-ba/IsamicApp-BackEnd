@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-import Class from "../models/class.js";
+import Class from "../models/Class.js";
 import ClassEnrollment from "../models/classEnrollment.js";
 import User from "../models/Users.js";
 
@@ -20,9 +20,7 @@ const getClassStatus = (classItem) => {
   const now = new Date();
   const start = new Date(classItem.scheduledAt);
 
-  const end = new Date(
-    start.getTime() + classItem.durationMinutes * 60 * 1000
-  );
+  const end = new Date(start.getTime() + classItem.durationMinutes * 60 * 1000);
 
   if (now >= start && now < end) {
     return "Live";
@@ -36,9 +34,7 @@ const getClassStatus = (classItem) => {
 };
 
 const formatClass = (classItem, students = 0) => {
-  const item = classItem.toObject
-    ? classItem.toObject()
-    : classItem;
+  const item = classItem.toObject ? classItem.toObject() : classItem;
 
   return {
     ...item,
@@ -70,10 +66,7 @@ const getEnrollmentCounts = async (classIds) => {
   ]);
 
   return new Map(
-    enrollmentCounts.map((item) => [
-      item._id.toString(),
-      item.count,
-    ])
+    enrollmentCounts.map((item) => [item._id.toString(), item.count]),
   );
 };
 
@@ -100,10 +93,7 @@ export const getTeacherClasses = async (req, res) => {
     const countMap = await getEnrollmentCounts(classIds);
 
     const formattedClasses = classes.map((item) =>
-      formatClass(
-        item,
-        countMap.get(item._id.toString()) || 0
-      )
+      formatClass(item, countMap.get(item._id.toString()) || 0),
     );
 
     res.status(200).json({
@@ -145,8 +135,7 @@ export const getTeacherClassById = async (req, res) => {
     if (!classItem) {
       return res.status(404).json({
         success: false,
-        message:
-          "Class not found or you do not have access",
+        message: "Class not found or you do not have access",
       });
     }
 
@@ -169,6 +158,7 @@ export const getTeacherClassById = async (req, res) => {
   }
 };
 
+
 /* --------------------------------
    Create Class - Teacher/Scholar
 -------------------------------- */
@@ -184,6 +174,9 @@ export const createTeacherClass = async (req, res) => {
       durationMinutes,
       maxStudents,
       meetingUrl,
+      learningOutcomes,
+      topics,
+      requirements,
     } = req.body;
 
     if (
@@ -217,16 +210,50 @@ export const createTeacherClass = async (req, res) => {
       });
     }
 
+    const cleanArray = (value) => {
+      if (!Array.isArray(value)) {
+        return [];
+      }
+
+      return value
+        .map((item) => String(item).trim())
+        .filter(Boolean);
+    };
+
     const classItem = await Class.create({
-      title,
-      description,
+      title: title.trim(),
+
+      description:
+        typeof description === "string"
+          ? description.trim()
+          : "",
+
       category,
       level,
+
       teacher: req.user._id,
+
       scheduledAt: scheduledDate,
+
       durationMinutes: Number(durationMinutes),
+
       maxStudents: Number(maxStudents),
-      meetingUrl: meetingUrl || "",
+
+      meetingUrl:
+        typeof meetingUrl === "string"
+          ? meetingUrl.trim()
+          : "",
+
+      learningOutcomes: cleanArray(
+        learningOutcomes
+      ),
+
+      topics: cleanArray(topics),
+
+      requirements: cleanArray(
+        requirements
+      ),
+
       status: "Scheduled",
     });
 
@@ -236,7 +263,10 @@ export const createTeacherClass = async (req, res) => {
       class: formatClass(classItem, 0),
     });
   } catch (error) {
-    console.error("Create teacher class error:", error);
+    console.error(
+      "Create teacher class error:",
+      error
+    );
 
     res.status(500).json({
       success: false,
@@ -244,6 +274,9 @@ export const createTeacherClass = async (req, res) => {
     });
   }
 };
+/* --------------------------------
+   Update Class - Teacher/Scholar
+-------------------------------- */
 
 /* --------------------------------
    Update Class - Teacher/Scholar
@@ -282,11 +315,30 @@ export const updateTeacherClass = async (req, res) => {
       durationMinutes,
       maxStudents,
       meetingUrl,
+      learningOutcomes,
+      topics,
+      requirements,
       status,
     } = req.body;
 
+    const cleanArray = (value) => {
+      if (!Array.isArray(value)) {
+        return [];
+      }
+
+      return value
+        .map((item) => String(item).trim())
+        .filter(Boolean);
+    };
+
+    /* --------------------------------
+       Schedule
+    -------------------------------- */
+
     if (scheduledAt !== undefined) {
-      const scheduledDate = new Date(scheduledAt);
+      const scheduledDate = new Date(
+        scheduledAt
+      );
 
       if (Number.isNaN(scheduledDate.getTime())) {
         return res.status(400).json({
@@ -309,8 +361,12 @@ export const updateTeacherClass = async (req, res) => {
       classItem.scheduledAt = scheduledDate;
     }
 
+    /* --------------------------------
+       Basic Fields
+    -------------------------------- */
+
     if (title !== undefined) {
-      classItem.title = title;
+      classItem.title = title.trim();
     }
 
     if (description !== undefined) {
@@ -325,38 +381,96 @@ export const updateTeacherClass = async (req, res) => {
       classItem.level = level;
     }
 
+    /* --------------------------------
+       Duration
+    -------------------------------- */
+
     if (durationMinutes !== undefined) {
-      classItem.durationMinutes = Number(durationMinutes);
+      classItem.durationMinutes =
+        Number(durationMinutes);
     }
+
+    /* --------------------------------
+       Maximum Students
+    -------------------------------- */
 
     if (maxStudents !== undefined) {
       const currentStudents =
         await ClassEnrollment.countDocuments({
           class: classId,
           status: {
-            $in: ["Registered", "Attended"],
+            $in: [
+              "Registered",
+              "Attended",
+            ],
           },
         });
 
-      if (Number(maxStudents) < currentStudents) {
+      if (
+        Number(maxStudents) <
+        currentStudents
+      ) {
         return res.status(400).json({
           success: false,
           message: `Maximum students cannot be less than current registrations (${currentStudents})`,
         });
       }
 
-      classItem.maxStudents = Number(maxStudents);
+      classItem.maxStudents =
+        Number(maxStudents);
     }
 
+    /* --------------------------------
+       Meeting URL
+    -------------------------------- */
+
     if (meetingUrl !== undefined) {
-      classItem.meetingUrl = meetingUrl;
+      classItem.meetingUrl =
+        typeof meetingUrl === "string"
+          ? meetingUrl.trim()
+          : "";
     }
+
+    /* --------------------------------
+       Learning Outcomes
+    -------------------------------- */
+
+    if (
+      learningOutcomes !== undefined
+    ) {
+      classItem.learningOutcomes =
+        cleanArray(learningOutcomes);
+    }
+
+    /* --------------------------------
+       Topics
+    -------------------------------- */
+
+    if (topics !== undefined) {
+      classItem.topics =
+        cleanArray(topics);
+    }
+
+    /* --------------------------------
+       Requirements
+    -------------------------------- */
+
+    if (requirements !== undefined) {
+      classItem.requirements =
+        cleanArray(requirements);
+    }
+
+    /* --------------------------------
+       Status
+    -------------------------------- */
 
     if (status !== undefined) {
       if (
-        !["Scheduled", "Cancelled", "Completed"].includes(
-          status
-        )
+        ![
+          "Scheduled",
+          "Cancelled",
+          "Completed",
+        ].includes(status)
       ) {
         return res.status(400).json({
           success: false,
@@ -369,18 +483,30 @@ export const updateTeacherClass = async (req, res) => {
 
     await classItem.save();
 
-    const students = await ClassEnrollment.countDocuments({
-      class: classId,
-      status: { $in: ["Registered", "Attended"] },
-    });
+    const students =
+      await ClassEnrollment.countDocuments({
+        class: classId,
+        status: {
+          $in: [
+            "Registered",
+            "Attended",
+          ],
+        },
+      });
 
     res.status(200).json({
       success: true,
       message: "Class updated successfully",
-      class: formatClass(classItem, students),
+      class: formatClass(
+        classItem,
+        students
+      ),
     });
   } catch (error) {
-    console.error("Update teacher class error:", error);
+    console.error(
+      "Update teacher class error:",
+      error
+    );
 
     res.status(500).json({
       success: false,
@@ -412,8 +538,7 @@ export const deleteTeacherClass = async (req, res) => {
     if (!classItem) {
       return res.status(404).json({
         success: false,
-        message:
-          "Class not found or you do not have access",
+        message: "Class not found or you do not have access",
       });
     }
 
@@ -449,11 +574,7 @@ export const deleteTeacherClass = async (req, res) => {
 
 export const getAdminClasses = async (req, res) => {
   try {
-    const {
-      search = "",
-      category = "All",
-      status = "All",
-    } = req.query;
+    const { search = "", category = "All", status = "All" } = req.query;
 
     const query = {};
 
@@ -480,10 +601,7 @@ export const getAdminClasses = async (req, res) => {
     const countMap = await getEnrollmentCounts(classIds);
 
     let formattedClasses = classes.map((item) =>
-      formatClass(
-        item,
-        countMap.get(item._id.toString()) || 0
-      )
+      formatClass(item, countMap.get(item._id.toString()) || 0),
     );
 
     /* --------------------------------
@@ -494,11 +612,9 @@ export const getAdminClasses = async (req, res) => {
 
     if (searchText) {
       formattedClasses = formattedClasses.filter((item) => {
-        const teacherName =
-          item.teacher?.name?.toLowerCase() || "";
+        const teacherName = item.teacher?.name?.toLowerCase() || "";
 
-        const teacherEmail =
-          item.teacher?.email?.toLowerCase() || "";
+        const teacherEmail = item.teacher?.email?.toLowerCase() || "";
 
         return (
           item.title.toLowerCase().includes(searchText) ||
@@ -516,7 +632,7 @@ export const getAdminClasses = async (req, res) => {
 
     if (status !== "All") {
       formattedClasses = formattedClasses.filter(
-        (item) => item.status === status
+        (item) => item.status === status,
       );
     }
 
@@ -550,10 +666,7 @@ export const getAdminClassById = async (req, res) => {
     }
 
     const classItem = await Class.findById(classId)
-      .populate(
-        "teacher",
-        "name email role isActive isVerified"
-      )
+      .populate("teacher", "name email role isActive isVerified")
       .lean();
 
     if (!classItem) {
@@ -596,9 +709,7 @@ export const getClassTeachersForAdmin = async (req, res) => {
       },
       isActive: true,
     })
-      .select(
-        "_id name email role isActive isVerified"
-      )
+      .select("_id name email role isActive isVerified")
       .sort({ name: 1 })
       .lean();
 
@@ -607,10 +718,7 @@ export const getClassTeachersForAdmin = async (req, res) => {
       teachers,
     });
   } catch (error) {
-    console.error(
-      "Get class teachers for admin error:",
-      error
-    );
+    console.error("Get class teachers for admin error:", error);
 
     res.status(500).json({
       success: false,
@@ -635,8 +743,18 @@ export const createAdminClass = async (req, res) => {
       durationMinutes,
       maxStudents,
       meetingUrl,
-      status,
+      learningOutcomes,
+      topics,
+      requirements,
     } = req.body;
+
+    const cleanArray = (value) => {
+      if (!Array.isArray(value)) return [];
+
+      return value
+        .map((item) => String(item).trim())
+        .filter(Boolean);
+    };
 
     if (
       !title ||
@@ -649,30 +767,7 @@ export const createAdminClass = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "Please provide all required fields",
-      });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(teacher)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid teacher ID",
-      });
-    }
-
-    const teacherUser = await User.findOne({
-      _id: teacher,
-      role: {
-        $in: ["teacher", "scholar"],
-      },
-      isActive: true,
-    });
-
-    if (!teacherUser) {
-      return res.status(404).json({
-        success: false,
-        message:
-          "Teacher or scholar not found or inactive",
+        message: "Please provide all required class fields.",
       });
     }
 
@@ -681,78 +776,55 @@ export const createAdminClass = async (req, res) => {
     if (Number.isNaN(scheduledDate.getTime())) {
       return res.status(400).json({
         success: false,
-        message: "Invalid scheduled date",
+        message: "Invalid scheduled date.",
       });
     }
 
-    if (scheduledDate <= new Date()) {
-      return res.status(400).json({
+    const teacherUser = await User.findById(teacher);
+
+    if (!teacherUser) {
+      return res.status(404).json({
         success: false,
-        message:
-          "Class must be scheduled for a future date",
-      });
-    }
-
-    const classStatus = status || "Scheduled";
-
-    if (
-      !["Scheduled", "Cancelled", "Completed"].includes(
-        classStatus
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid class status",
-      });
-    }
-
-    /*
-      A newly created class should normally be future
-      scheduled. Therefore Completed is not allowed
-      during creation.
-    */
-
-    if (classStatus === "Completed") {
-      return res.status(400).json({
-        success: false,
-        message:
-          "A new class cannot be created with Completed status",
+        message: "Teacher not found.",
       });
     }
 
     const classItem = await Class.create({
-      title: title.trim(),
+      title,
       description: description || "",
       category,
       level,
-      teacher: teacherUser._id,
+      teacher,
       scheduledAt: scheduledDate,
       durationMinutes: Number(durationMinutes),
       maxStudents: Number(maxStudents),
       meetingUrl: meetingUrl || "",
-      status: classStatus,
+
+      // New dynamic class details
+      learningOutcomes: cleanArray(learningOutcomes),
+      topics: cleanArray(topics),
+      requirements: cleanArray(requirements),
+
+      status: "Scheduled",
     });
 
-    const populatedClass = await Class.findById(
-      classItem._id
-    )
-      .populate(
-        "teacher",
-        "name email role isActive isVerified"
-      )
-      .lean();
+    const populatedClass = await Class.findById(classItem._id).populate(
+      "teacher",
+      "name email role"
+    );
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: "Class created successfully",
-      class: formatClass(populatedClass, 0),
+      message: "Class created successfully.",
+      class: formatClass(populatedClass),
     });
   } catch (error) {
-    console.error("Create admin class error:", error);
+    console.error("createAdminClass error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to create class",
+      message: "Failed to create class.",
+      error: error.message,
     });
   }
 };
@@ -765,22 +837,6 @@ export const updateAdminClass = async (req, res) => {
   try {
     const { classId } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(classId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid class ID",
-      });
-    }
-
-    const classItem = await Class.findById(classId);
-
-    if (!classItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Class not found",
-      });
-    }
-
     const {
       title,
       description,
@@ -791,87 +847,31 @@ export const updateAdminClass = async (req, res) => {
       durationMinutes,
       maxStudents,
       meetingUrl,
+      learningOutcomes,
+      topics,
+      requirements,
       status,
     } = req.body;
 
-    /* --------------------------------
-       Teacher
-    -------------------------------- */
+    const classItem = await Class.findById(classId);
 
-    if (teacher !== undefined) {
-      if (!mongoose.Types.ObjectId.isValid(teacher)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid teacher ID",
-        });
-      }
-
-      const teacherUser = await User.findOne({
-        _id: teacher,
-        role: {
-          $in: ["teacher", "scholar"],
-        },
-        isActive: true,
+    if (!classItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Class not found.",
       });
-
-      if (!teacherUser) {
-        return res.status(404).json({
-          success: false,
-          message:
-            "Teacher or scholar not found or inactive",
-        });
-      }
-
-      classItem.teacher = teacherUser._id;
     }
 
-    /* --------------------------------
-       Schedule
-    -------------------------------- */
+    const cleanArray = (value) => {
+      if (!Array.isArray(value)) return [];
 
-    if (scheduledAt !== undefined) {
-      const scheduledDate = new Date(scheduledAt);
-
-      if (Number.isNaN(scheduledDate.getTime())) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid scheduled date",
-        });
-      }
-
-      /*
-        Allow past dates only when the class is being
-        explicitly marked Completed.
-      */
-
-      if (
-        scheduledDate <= new Date() &&
-        status !== "Completed" &&
-        classItem.status !== "Completed"
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Class must be scheduled for a future date",
-        });
-      }
-
-      classItem.scheduledAt = scheduledDate;
-    }
-
-    /* --------------------------------
-       Basic Fields
-    -------------------------------- */
+      return value
+        .map((item) => String(item).trim())
+        .filter(Boolean);
+    };
 
     if (title !== undefined) {
-      if (!title.trim()) {
-        return res.status(400).json({
-          success: false,
-          message: "Class title cannot be empty",
-        });
-      }
-
-      classItem.title = title.trim();
+      classItem.title = title;
     }
 
     if (description !== undefined) {
@@ -886,113 +886,80 @@ export const updateAdminClass = async (req, res) => {
       classItem.level = level;
     }
 
-    if (durationMinutes !== undefined) {
-      const duration = Number(durationMinutes);
+    if (teacher !== undefined) {
+      const teacherUser = await User.findById(teacher);
 
-      if (
-        Number.isNaN(duration) ||
-        duration < 15 ||
-        duration > 240
-      ) {
-        return res.status(400).json({
+      if (!teacherUser) {
+        return res.status(404).json({
           success: false,
-          message:
-            "Duration must be between 15 and 240 minutes",
+          message: "Teacher not found.",
         });
       }
 
-      classItem.durationMinutes = duration;
+      classItem.teacher = teacher;
     }
 
-    /* --------------------------------
-       Maximum Students
-    -------------------------------- */
+    if (scheduledAt !== undefined) {
+      const scheduledDate = new Date(scheduledAt);
+
+      if (Number.isNaN(scheduledDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid scheduled date.",
+        });
+      }
+
+      classItem.scheduledAt = scheduledDate;
+    }
+
+    if (durationMinutes !== undefined) {
+      classItem.durationMinutes = Number(durationMinutes);
+    }
 
     if (maxStudents !== undefined) {
-      const maximum = Number(maxStudents);
-
-      if (
-        Number.isNaN(maximum) ||
-        maximum < 1 ||
-        maximum > 500
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Maximum students must be between 1 and 500",
-        });
-      }
-
-      const currentStudents =
-        await ClassEnrollment.countDocuments({
-          class: classId,
-          status: {
-            $in: ["Registered", "Attended"],
-          },
-        });
-
-      if (maximum < currentStudents) {
-        return res.status(400).json({
-          success: false,
-          message: `Maximum students cannot be less than current registrations (${currentStudents})`,
-        });
-      }
-
-      classItem.maxStudents = maximum;
+      classItem.maxStudents = Number(maxStudents);
     }
 
     if (meetingUrl !== undefined) {
-      classItem.meetingUrl = meetingUrl;
+      classItem.meetingUrl = meetingUrl || "";
     }
 
-    /* --------------------------------
-       Status
-    -------------------------------- */
+    // New dynamic class details
+    if (learningOutcomes !== undefined) {
+      classItem.learningOutcomes = cleanArray(learningOutcomes);
+    }
+
+    if (topics !== undefined) {
+      classItem.topics = cleanArray(topics);
+    }
+
+    if (requirements !== undefined) {
+      classItem.requirements = cleanArray(requirements);
+    }
 
     if (status !== undefined) {
-      if (
-        !["Scheduled", "Cancelled", "Completed"].includes(
-          status
-        )
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid class status",
-        });
-      }
-
       classItem.status = status;
     }
 
     await classItem.save();
 
-    const updatedClass = await Class.findById(
-      classItem._id
-    )
-      .populate(
-        "teacher",
-        "name email role isActive isVerified"
-      )
-      .lean();
+    const populatedClass = await Class.findById(classItem._id).populate(
+      "teacher",
+      "name email role"
+    );
 
-    const students = await ClassEnrollment.countDocuments({
-      class: classId,
-      status: {
-        $in: ["Registered", "Attended"],
-      },
-    });
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Class updated successfully",
-      class: formatClass(updatedClass, students),
+      message: "Class updated successfully.",
+      class: formatClass(populatedClass),
     });
   } catch (error) {
-    console.error("Update admin class error:", error);
+    console.error("updateAdminClass error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to update class",
+      message: "Failed to update class.",
+      error: error.message,
     });
   }
 };
@@ -1044,6 +1011,565 @@ export const deleteAdminClass = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to delete class",
+    });
+  }
+};
+
+/* ================================================================
+   STUDENT ACCESS
+================================================================ */
+
+/* --------------------------------
+   Get Available Classes
+-------------------------------- */
+
+export const getStudentClasses = async (req, res) => {
+  try {
+    const {
+      search = "",
+      category = "All",
+      level = "All",
+      status = "All",
+    } = req.query;
+
+    const query = {};
+
+    if (category !== "All") {
+      query.category = category;
+    }
+
+    if (level !== "All") {
+      query.level = level;
+    }
+
+    let classes = await Class.find(query)
+      .populate("teacher", "name email role")
+      .sort({ scheduledAt: 1 })
+      .lean();
+
+    const classIds = classes.map((item) => item._id);
+
+    const countMap = await getEnrollmentCounts(classIds);
+
+    let formattedClasses = classes.map((item) =>
+      formatClass(item, countMap.get(item._id.toString()) || 0),
+    );
+
+    /* --------------------------------
+       Search
+    -------------------------------- */
+
+    const searchText = String(search).trim().toLowerCase();
+
+    if (searchText) {
+      formattedClasses = formattedClasses.filter((item) => {
+        const teacherName = item.teacher?.name?.toLowerCase() || "";
+
+        return (
+          item.title.toLowerCase().includes(searchText) ||
+          item.description?.toLowerCase().includes(searchText) ||
+          teacherName.includes(searchText) ||
+          item.category.toLowerCase().includes(searchText) ||
+          item.level.toLowerCase().includes(searchText)
+        );
+      });
+    }
+
+    /* --------------------------------
+       Status Filter
+    -------------------------------- */
+
+    if (status !== "All") {
+      formattedClasses = formattedClasses.filter(
+        (item) => item.status === status,
+      );
+    }
+
+    /* --------------------------------
+       Student Enrollment Status
+    -------------------------------- */
+
+    const enrollments = await ClassEnrollment.find({
+      student: req.user._id,
+      class: { $in: classIds },
+    })
+      .select("class status")
+      .lean();
+
+    const enrollmentMap = new Map(
+      enrollments.map((item) => [item.class.toString(), item.status]),
+    );
+
+    formattedClasses = formattedClasses.map((item) => ({
+      ...item,
+      enrollmentStatus: enrollmentMap.get(item.id.toString()) || null,
+      isEnrolled: enrollmentMap.has(item.id.toString()),
+      seatsRemaining: Math.max(item.maxStudents - item.students, 0),
+    }));
+
+    res.status(200).json({
+      success: true,
+      classes: formattedClasses,
+    });
+  } catch (error) {
+    console.error("Get student classes error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch classes",
+    });
+  }
+};
+
+/* --------------------------------
+   Get Single Student Class
+-------------------------------- */
+
+export const getStudentClassById = async (req, res) => {
+  try {
+    const { classId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(classId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid class ID",
+      });
+    }
+
+    const classItem = await Class.findById(classId)
+      .populate("teacher", "name email role")
+      .lean();
+
+    if (!classItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Class not found",
+      });
+    }
+
+    const students = await ClassEnrollment.countDocuments({
+      class: classId,
+      status: {
+        $in: ["Registered", "Attended"],
+      },
+    });
+
+    const enrollment = await ClassEnrollment.findOne({
+      student: req.user._id,
+      class: classId,
+    })
+      .select("status registeredAt")
+      .lean();
+
+    const formattedClass = formatClass(classItem, students);
+
+    res.status(200).json({
+      success: true,
+      class: {
+        ...formattedClass,
+        enrollmentStatus: enrollment?.status || null,
+        isEnrolled: Boolean(enrollment),
+        registeredAt: enrollment?.registeredAt || null,
+        seatsRemaining: Math.max(classItem.maxStudents - students, 0),
+      },
+    });
+  } catch (error) {
+    console.error("Get student class error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch class",
+    });
+  }
+};
+
+
+
+/* --------------------------------
+   Get My Classes
+-------------------------------- */
+
+export const getMyStudentClasses = async (req, res) => {
+  try {
+    const enrollments = await ClassEnrollment.find({
+      student: req.user._id,
+    })
+      .populate({
+        path: "class",
+        populate: {
+          path: "teacher",
+          select: "name email role",
+        },
+      })
+      .sort({ registeredAt: -1 })
+      .lean();
+
+    const classes = enrollments
+      .filter((item) => item.class)
+      .map((item) => {
+        const formatted = formatClass(item.class, 0);
+
+        return {
+          ...formatted,
+          enrollmentStatus: item.status,
+          isEnrolled: true,
+          registeredAt: item.registeredAt,
+        };
+      });
+
+    res.status(200).json({
+      success: true,
+      classes,
+    });
+  } catch (error) {
+    console.error("Get my student classes error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch your classes",
+    });
+  }
+};
+
+/* --------------------------------
+   Enroll Student
+-------------------------------- */
+
+export const enrollStudentInClass = async (req, res) => {
+  try {
+    const { classId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(classId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid class ID",
+      });
+    }
+
+    const classItem = await Class.findById(classId)
+      .populate("teacher", "name email role");
+
+    if (!classItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Class not found",
+      });
+    }
+
+    const currentStatus = getClassStatus(classItem);
+
+    /* --------------------------------
+       Class Status Validation
+    -------------------------------- */
+
+    if (classItem.status === "Cancelled") {
+      return res.status(400).json({
+        success: false,
+        message: "This class has been cancelled",
+      });
+    }
+
+    if (
+      currentStatus === "Completed" ||
+      classItem.status === "Completed"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "This class has already been completed",
+      });
+    }
+
+    if (currentStatus === "Live") {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot enroll in a class that is already live",
+      });
+    }
+
+    /* --------------------------------
+       Check Existing Enrollment
+    -------------------------------- */
+
+    const existingEnrollment =
+      await ClassEnrollment.findOne({
+        student: req.user._id,
+        class: classId,
+      });
+
+    if (existingEnrollment) {
+      /*
+        If the previous enrollment was cancelled,
+        allow the student to re-enroll.
+      */
+      if (existingEnrollment.status === "Cancelled") {
+        const students =
+          await ClassEnrollment.countDocuments({
+            class: classId,
+            status: {
+              $in: ["Registered", "Attended"],
+            },
+          });
+
+        if (students >= classItem.maxStudents) {
+          return res.status(400).json({
+            success: false,
+            message: "This class is full",
+          });
+        }
+
+        existingEnrollment.status = "Registered";
+        existingEnrollment.registeredAt = new Date();
+
+        await existingEnrollment.save();
+
+        const updatedStudents =
+          await ClassEnrollment.countDocuments({
+            class: classId,
+            status: {
+              $in: ["Registered", "Attended"],
+            },
+          });
+
+        const formattedClass = formatClass(
+          classItem,
+          updatedStudents
+        );
+
+        return res.status(200).json({
+          success: true,
+          message: "You have re-enrolled successfully",
+          enrollment: existingEnrollment,
+          class: {
+            ...formattedClass,
+            enrollmentStatus: "Registered",
+            isEnrolled: true,
+            registeredAt:
+              existingEnrollment.registeredAt,
+            seatsRemaining: Math.max(
+              classItem.maxStudents -
+                updatedStudents,
+              0
+            ),
+          },
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "You are already enrolled in this class",
+      });
+    }
+
+    /* --------------------------------
+       Check Available Seats
+    -------------------------------- */
+
+    const students =
+      await ClassEnrollment.countDocuments({
+        class: classId,
+        status: {
+          $in: ["Registered", "Attended"],
+        },
+      });
+
+    if (students >= classItem.maxStudents) {
+      return res.status(400).json({
+        success: false,
+        message: "This class is full",
+      });
+    }
+
+    /* --------------------------------
+       Create Enrollment
+    -------------------------------- */
+
+    const enrollment =
+      await ClassEnrollment.create({
+        student: req.user._id,
+        class: classId,
+        status: "Registered",
+        registeredAt: new Date(),
+      });
+
+    /* --------------------------------
+       Get Updated Enrollment Count
+    -------------------------------- */
+
+    const updatedStudents =
+      await ClassEnrollment.countDocuments({
+        class: classId,
+        status: {
+          $in: ["Registered", "Attended"],
+        },
+      });
+
+    const formattedClass = formatClass(
+      classItem,
+      updatedStudents
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Successfully enrolled in class",
+      enrollment,
+      class: {
+        ...formattedClass,
+        enrollmentStatus: "Registered",
+        isEnrolled: true,
+        registeredAt: enrollment.registeredAt,
+        seatsRemaining: Math.max(
+          classItem.maxStudents -
+            updatedStudents,
+          0
+        ),
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Enroll student error:",
+      error
+    );
+
+    /*
+      Handles the unique index:
+      student + class
+    */
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "You are already enrolled in this class",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to enroll in class",
+    });
+  }
+};
+
+
+/* --------------------------------
+   Cancel Enrollment
+-------------------------------- */
+
+export const cancelStudentEnrollment = async (
+  req,
+  res
+) => {
+  try {
+    const { classId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(classId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid class ID",
+      });
+    }
+
+    const enrollment =
+      await ClassEnrollment.findOne({
+        student: req.user._id,
+        class: classId,
+      });
+
+    if (!enrollment) {
+      return res.status(404).json({
+        success: false,
+        message: "You are not enrolled in this class",
+      });
+    }
+
+    if (enrollment.status === "Cancelled") {
+      return res.status(400).json({
+        success: false,
+        message: "Your enrollment is already cancelled",
+      });
+    }
+
+    const classItem = await Class.findById(
+      classId
+    ).populate(
+      "teacher",
+      "name email role"
+    );
+
+    if (!classItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Class not found",
+      });
+    }
+
+    const currentStatus =
+      getClassStatus(classItem);
+
+    /* --------------------------------
+       Prevent Cancellation After Start
+    -------------------------------- */
+
+    if (
+      currentStatus === "Live" ||
+      currentStatus === "Completed"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Enrollment cannot be cancelled after the class has started",
+      });
+    }
+
+    /* --------------------------------
+       Cancel Enrollment
+    -------------------------------- */
+
+    enrollment.status = "Cancelled";
+
+    await enrollment.save();
+
+    /* --------------------------------
+       Get Updated Enrollment Count
+    -------------------------------- */
+
+    const updatedStudents =
+      await ClassEnrollment.countDocuments({
+        class: classId,
+        status: {
+          $in: ["Registered", "Attended"],
+        },
+      });
+
+    const formattedClass = formatClass(
+      classItem,
+      updatedStudents
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Enrollment cancelled successfully",
+      enrollment,
+      class: {
+        ...formattedClass,
+        enrollmentStatus: "Cancelled",
+        isEnrolled: false,
+        registeredAt:
+          enrollment.registeredAt,
+        seatsRemaining: Math.max(
+          classItem.maxStudents -
+            updatedStudents,
+          0
+        ),
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Cancel student enrollment error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to cancel enrollment",
     });
   }
 };

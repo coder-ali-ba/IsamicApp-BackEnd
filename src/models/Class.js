@@ -16,6 +16,24 @@ const classSchema = new mongoose.Schema(
       maxlength: 2000,
       default: "",
     },
+    /* --------------------------------
+       Learning Content
+    -------------------------------- */
+
+    learningOutcomes: {
+      type: [String],
+      default: [],
+    },
+
+    topics: {
+      type: [String],
+      default: [],
+    },
+
+    requirements: {
+      type: [String],
+      default: [],
+    },
 
     category: {
       type: String,
@@ -76,6 +94,8 @@ const classSchema = new mongoose.Schema(
       default: "Scheduled",
       index: true,
     },
+
+    
   },
   {
     timestamps: true,
