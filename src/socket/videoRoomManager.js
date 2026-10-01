@@ -11,9 +11,9 @@ import {
   getRouterRtpCapabilities,
 } from "../services/mediasoup.service.js";
 
-/* =========================================================
-   CLASS STATUS
-========================================================= */
+// =========================================================
+// CLASS STATUS
+// =========================================================
 
 const getClassStatus = (classItem) => {
   if (classItem.status === "Cancelled") {
@@ -25,11 +25,11 @@ const getClassStatus = (classItem) => {
   }
 
   const now = new Date();
+
   const start = new Date(classItem.scheduledAt);
 
   const end = new Date(
-    start.getTime() +
-      Number(classItem.durationMinutes) * 60 * 1000
+    start.getTime() + Number(classItem.durationMinutes) * 60 * 1000,
   );
 
   if (now >= start && now < end) {
@@ -43,15 +43,13 @@ const getClassStatus = (classItem) => {
   return "Completed";
 };
 
-/* =========================================================
-   VERIFY CLASS ACCESS
-========================================================= */
+// =========================================================
+// VERIFY CLASS ACCESS
+// =========================================================
 
 export const verifyClassAccess = async (classId, user) => {
   const classItem = await Class.findById(classId)
-    .select(
-      "_id title teacher scheduledAt durationMinutes status maxStudents"
-    )
+    .select("_id title teacher scheduledAt durationMinutes status maxStudents")
     .lean();
 
   if (!classItem) {
@@ -61,42 +59,42 @@ export const verifyClassAccess = async (classId, user) => {
   const currentStatus = getClassStatus(classItem);
 
   if (currentStatus !== "Live") {
-    throw new Error(
-      `This class is not live. Current status: ${currentStatus}`
-    );
+    throw new Error(`This class is not live. Current status: ${currentStatus}`);
+  }
+
+  if (!user || !user._id) {
+    throw new Error("Authentication required");
   }
 
   const userId = user._id.toString();
   const teacherId = classItem.teacher.toString();
 
-  /* Teacher / Scholar who owns the class */
+  // =====================================================
+  // TEACHER / SCHOLAR WHO OWNS THE CLASS
+  // =====================================================
 
-  if (
-    ["teacher", "scholar"].includes(user.role) &&
-    userId === teacherId
-  ) {
+  if (["teacher", "scholar"].includes(user.role) && userId === teacherId) {
     return {
       classItem,
       access: "teacher",
     };
   }
 
-  /* Student must be enrolled */
+  // =====================================================
+  // STUDENT MUST BE ENROLLED
+  // =====================================================
 
   if (user.role === "student") {
-    const enrollment =
-      await ClassEnrollment.findOne({
-        class: classId,
-        student: user._id,
-        status: {
-          $in: ["Registered", "Attended"],
-        },
-      }).lean();
+    const enrollment = await ClassEnrollment.findOne({
+      class: classId,
+      student: user._id,
+      status: {
+        $in: ["Registered", "Attended"],
+      },
+    }).lean();
 
     if (!enrollment) {
-      throw new Error(
-        "You must be enrolled in this class to join"
-      );
+      throw new Error("You must be enrolled in this class to join");
     }
 
     return {
@@ -105,36 +103,59 @@ export const verifyClassAccess = async (classId, user) => {
     };
   }
 
-  throw new Error(
-    "You are not authorized to join this class"
-  );
+  // =====================================================
+  // UNAUTHORIZED
+  // =====================================================
+
+  throw new Error("You are not authorized to join this class");
 };
 
-/* =========================================================
-   JOIN ROOM
-========================================================= */
+// =========================================================
+// JOIN ROOM
+// =========================================================
 
-export const joinRoom = async ({
-  classId,
-  socketId,
-  user,
-}) => {
-  const access = await verifyClassAccess(
-    classId,
-    user
-  );
+export const joinRoom = async ({ classId, socketId, user }) => {
+  if (!classId) {
+    throw new Error("Class ID is required");
+  }
+
+  if (!socketId) {
+    throw new Error("Socket ID is required");
+  }
+
+  if (!user) {
+    throw new Error("User is required");
+  }
+
+  // -----------------------------------------------------
+  // VERIFY USER ACCESS
+  // -----------------------------------------------------
+
+  const access = await verifyClassAccess(classId, user);
+
+  // -----------------------------------------------------
+  // GET / CREATE SFU ROOM
+  // -----------------------------------------------------
 
   const room = await getOrCreateRoom(classId);
 
+  // -----------------------------------------------------
+  // GET EXISTING PEER
+  // -----------------------------------------------------
+
   let peer = getPeer(classId, socketId);
 
+  // -----------------------------------------------------
+  // CREATE NEW PEER
+  // -----------------------------------------------------
+
   if (!peer) {
-    peer = createPeer(
-      classId,
-      socketId,
-      user
-    );
+    peer = createPeer(classId, socketId, user);
   }
+
+  // -----------------------------------------------------
+  // EXISTING PARTICIPANTS
+  // -----------------------------------------------------
 
   const existingPeers = [];
 
@@ -151,76 +172,111 @@ export const joinRoom = async ({
     });
   }
 
+  // -----------------------------------------------------
+  // RETURN ROOM INFORMATION
+  // -----------------------------------------------------
+
   return {
     classId: String(classId),
 
+    peerId: peer.id,
+
     access: access.access,
 
-    routerRtpCapabilities:
-      getRouterRtpCapabilities(classId),
+    user: {
+      id: String(user._id),
+      name: user.name || "User",
+      role: user.role,
+    },
+
+    routerRtpCapabilities: getRouterRtpCapabilities(classId),
 
     participants: existingPeers,
   };
 };
 
-/* =========================================================
-   CREATE TRANSPORT
-========================================================= */
+// =========================================================
+// CREATE WEBRTC TRANSPORT
+// =========================================================
 
-export const createTransport = async ({
-  classId,
-  socketId,
-}) => {
+export const createTransport = async ({ classId, socketId, direction }) => {
+  if (!classId) {
+    throw new Error("Class ID is required");
+  }
+
+  if (!socketId) {
+    throw new Error("Socket ID is required");
+  }
+
+  if (direction && !["send", "recv"].includes(direction)) {
+    throw new Error("Transport direction must be send or recv");
+  }
+
+  // -----------------------------------------------------
+  // GET PEER
+  // -----------------------------------------------------
+
   const peer = getPeer(classId, socketId);
 
   if (!peer) {
-    throw new Error(
-      "You must join the class first"
-    );
+    throw new Error("You must join the class first");
   }
 
-  const transport =
-    await createWebRtcTransport(classId);
+  // -----------------------------------------------------
+  // CREATE MEDIASOUP TRANSPORT
+  // -----------------------------------------------------
 
-  peer.transports.set(
-    transport.id,
-    transport
-  );
+  const transport = await createWebRtcTransport(classId);
+
+  // -----------------------------------------------------
+  // STORE TRANSPORT INSIDE PEER
+  // -----------------------------------------------------
+
+  peer.transports.set(transport.id, transport);
+
+  // -----------------------------------------------------
+  // RETURN TRANSPORT PARAMETERS
+  // -----------------------------------------------------
 
   return {
     id: transport.id,
 
-    iceParameters:
-      transport.iceParameters,
+    iceParameters: transport.iceParameters,
 
-    iceCandidates:
-      transport.iceCandidates,
+    iceCandidates: transport.iceCandidates,
 
-    dtlsParameters:
-      transport.dtlsParameters,
+    dtlsParameters: transport.dtlsParameters,
 
-    sctpParameters:
-      transport.sctpParameters,
+    sctpParameters: transport.sctpParameters,
+
+    direction: direction || null,
   };
 };
 
-/* =========================================================
-   GET TRANSPORT
-========================================================= */
+// =========================================================
+// GET PEER TRANSPORT
+// =========================================================
 
-export const getPeerTransport = ({
-  classId,
-  socketId,
-  transportId,
-}) => {
+export const getPeerTransport = ({ classId, socketId, transportId }) => {
+  if (!classId) {
+    throw new Error("Class ID is required");
+  }
+
+  if (!socketId) {
+    throw new Error("Socket ID is required");
+  }
+
+  if (!transportId) {
+    throw new Error("Transport ID is required");
+  }
+
   const peer = getPeer(classId, socketId);
 
   if (!peer) {
     throw new Error("Peer not found");
   }
 
-  const transport =
-    peer.transports.get(transportId);
+  const transport = peer.transports.get(transportId);
 
   if (!transport) {
     throw new Error("Transport not found");
@@ -232,9 +288,9 @@ export const getPeerTransport = ({
   };
 };
 
-/* =========================================================
-   CONNECT TRANSPORT
-========================================================= */
+// =========================================================
+// CONNECT WEBRTC TRANSPORT
+// =========================================================
 
 export const connectTransport = async ({
   classId,
@@ -242,12 +298,15 @@ export const connectTransport = async ({
   transportId,
   dtlsParameters,
 }) => {
-  const { transport } =
-    getPeerTransport({
-      classId,
-      socketId,
-      transportId,
-    });
+  if (!dtlsParameters) {
+    throw new Error("DTLS parameters are required");
+  }
+
+  const { transport } = getPeerTransport({
+    classId,
+    socketId,
+    transportId,
+  });
 
   await transport.connect({
     dtlsParameters,
@@ -255,12 +314,13 @@ export const connectTransport = async ({
 
   return {
     connected: true,
+    transportId,
   };
 };
 
-/* =========================================================
-   CREATE PRODUCER
-========================================================= */
+// =========================================================
+// CREATE PRODUCER
+// =========================================================
 
 export const createProducer = async ({
   classId,
@@ -270,54 +330,75 @@ export const createProducer = async ({
   rtpParameters,
   appData,
 }) => {
-  const { peer, transport } =
-    getPeerTransport({
-      classId,
+  if (!kind) {
+    throw new Error("Producer kind is required");
+  }
+
+  if (!rtpParameters) {
+    throw new Error("RTP parameters are required");
+  }
+
+  const { peer, transport } = getPeerTransport({
+    classId,
+    socketId,
+    transportId,
+  });
+
+  // -----------------------------------------------------
+  // PRODUCE
+  // -----------------------------------------------------
+
+  const producer = await transport.produce({
+    kind,
+    rtpParameters,
+
+    appData: {
+      ...(appData || {}),
+
+      userId: peer.userId,
+
       socketId,
-      transportId,
-    });
+    },
+  });
 
-  const producer =
-    await transport.produce({
-      kind,
-      rtpParameters,
-      appData: {
-        ...(appData || {}),
-        userId: peer.userId,
-        socketId,
-      },
-    });
+  // -----------------------------------------------------
+  // STORE PRODUCER
+  // -----------------------------------------------------
 
-  peer.producers.set(
-    producer.id,
-    producer
-  );
+  peer.producers.set(producer.id, producer);
+
+  // -----------------------------------------------------
+  // TRANSPORT CLOSED
+  // -----------------------------------------------------
 
   producer.on("transportclose", () => {
-    peer.producers.delete(
-      producer.id
-    );
+    peer.producers.delete(producer.id);
   });
 
+  // -----------------------------------------------------
+  // PRODUCER CLOSED
+  // -----------------------------------------------------
+
   producer.on("close", () => {
-    peer.producers.delete(
-      producer.id
-    );
+    peer.producers.delete(producer.id);
   });
+
+  // -----------------------------------------------------
+  // RETURN PRODUCER
+  // -----------------------------------------------------
 
   return {
     id: producer.id,
+    producerId: producer.id,
+    kind: producer.kind,
   };
 };
 
-/* =========================================================
-   LIST EXISTING PRODUCERS
-========================================================= */
+// =========================================================
+// LIST EXISTING PRODUCERS
+// =========================================================
 
-export const getExistingProducers = ({
-  classId,
-  socketId,
-}) => {
+export const getExistingProducers = ({ classId, socketId }) => {
   const room = getRoom(classId);
 
   if (!room) {
@@ -327,6 +408,10 @@ export const getExistingProducers = ({
   const producers = [];
 
   for (const [peerSocketId, peer] of room.peers) {
+    // ---------------------------------------------------
+    // DON'T RETURN CURRENT USER'S PRODUCERS
+    // ---------------------------------------------------
+
     if (peerSocketId === socketId) {
       continue;
     }
@@ -338,10 +423,15 @@ export const getExistingProducers = ({
 
       producers.push({
         producerId: producer.id,
-        socketId: peer.socketId,
-        userId: peer.userId,
-        name: peer.name,
-        role: peer.role,
+
+        peerId: peer.socketId,
+
+        user: {
+          id: peer.userId,
+          name: peer.name,
+          role: peer.role,
+        },
+
         kind: producer.kind,
       });
     }
@@ -350,9 +440,9 @@ export const getExistingProducers = ({
   return producers;
 };
 
-/* =========================================================
-   CREATE CONSUMER
-========================================================= */
+// =========================================================
+// CREATE CONSUMER
+// =========================================================
 
 export const createConsumer = async ({
   classId,
@@ -361,121 +451,146 @@ export const createConsumer = async ({
   producerId,
   rtpCapabilities,
 }) => {
+  if (!producerId) {
+    throw new Error("Producer ID is required");
+  }
+
+  if (!rtpCapabilities) {
+    throw new Error("RTP capabilities are required");
+  }
+
+  // -----------------------------------------------------
+  // GET ROOM
+  // -----------------------------------------------------
+
   const room = getRoom(classId);
 
   if (!room) {
     throw new Error("Room not found");
   }
 
-  const peer = getPeer(
-    classId,
-    socketId
-  );
+  // -----------------------------------------------------
+  // GET PEER
+  // -----------------------------------------------------
+
+  const peer = getPeer(classId, socketId);
 
   if (!peer) {
     throw new Error("Peer not found");
   }
 
-  const { transport } =
-    getPeerTransport({
-      classId,
-      socketId,
-      transportId,
-    });
+  // -----------------------------------------------------
+  // GET RECEIVE TRANSPORT
+  // -----------------------------------------------------
 
-  if (
-    !room.router.canConsume({
-      producerId,
-      rtpCapabilities,
-    })
-  ) {
-    throw new Error(
-      "Cannot consume this producer"
-    );
+  const { transport } = getPeerTransport({
+    classId,
+    socketId,
+    transportId,
+  });
+
+  // -----------------------------------------------------
+  // CHECK CONSUMPTION
+  // -----------------------------------------------------
+
+  const canConsume = room.router.canConsume({
+    producerId,
+    rtpCapabilities,
+  });
+
+  if (!canConsume) {
+    throw new Error("Cannot consume this producer");
   }
 
-  const consumer =
-    await transport.consume({
-      producerId,
-      rtpCapabilities,
-      paused: true,
-      appData: {
-        socketId,
-      },
-    });
+  // -----------------------------------------------------
+  // CREATE CONSUMER
+  // -----------------------------------------------------
 
-  peer.consumers.set(
-    consumer.id,
-    consumer
-  );
+  const consumer = await transport.consume({
+    producerId,
+    rtpCapabilities,
+
+    paused: true,
+
+    appData: {
+      socketId,
+    },
+  });
+
+  // -----------------------------------------------------
+  // STORE CONSUMER
+  // -----------------------------------------------------
+
+  peer.consumers.set(consumer.id, consumer);
+
+  // -----------------------------------------------------
+  // TRANSPORT CLOSED
+  // -----------------------------------------------------
 
   consumer.on("transportclose", () => {
-    peer.consumers.delete(
-      consumer.id
-    );
+    peer.consumers.delete(consumer.id);
   });
 
+  // -----------------------------------------------------
+  // PRODUCER CLOSED
+  // -----------------------------------------------------
+
   consumer.on("producerclose", () => {
-    peer.consumers.delete(
-      consumer.id
-    );
+    peer.consumers.delete(consumer.id);
   });
+
+  // -----------------------------------------------------
+  // RETURN CONSUMER DATA
+  // -----------------------------------------------------
 
   return {
     id: consumer.id,
+
     producerId: consumer.producerId,
+
     kind: consumer.kind,
-    rtpParameters:
-      consumer.rtpParameters,
+
+    rtpParameters: consumer.rtpParameters,
   };
 };
 
-/* =========================================================
-   RESUME CONSUMER
-========================================================= */
+// =========================================================
+// RESUME CONSUMER
+// =========================================================
 
-export const resumeConsumer = async ({
-  classId,
-  socketId,
-  consumerId,
-}) => {
-  const peer = getPeer(
-    classId,
-    socketId
-  );
+export const resumeConsumer = async ({ classId, socketId, consumerId }) => {
+  if (!consumerId) {
+    throw new Error("Consumer ID is required");
+  }
+
+  const peer = getPeer(classId, socketId);
 
   if (!peer) {
     throw new Error("Peer not found");
   }
 
-  const consumer =
-    peer.consumers.get(
-      consumerId
-    );
+  const consumer = peer.consumers.get(consumerId);
 
   if (!consumer) {
-    throw new Error(
-      "Consumer not found"
-    );
+    throw new Error("Consumer not found");
   }
 
   await consumer.resume();
 
   return {
     resumed: true,
+    consumerId,
   };
 };
 
-/* =========================================================
-   CLOSE PEER
-========================================================= */
+// =========================================================
+// CLOSE PEER / LEAVE ROOM
+// =========================================================
 
-export const leaveRoom = ({
-  classId,
-  socketId,
-}) => {
-  removePeer(
-    classId,
-    socketId
-  );
+export const leaveRoom = ({ classId, socketId }) => {
+  if (!classId || !socketId) {
+    return;
+  }
+
+  removePeer(classId, socketId);
 };
