@@ -17,6 +17,7 @@ import studentQuestionRouter from "./routes/studentQuestion.routes.js";
 const app = express();
 
 const allowedOrigins = [
+  "https://islamic-app-red.vercel.app",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ];
