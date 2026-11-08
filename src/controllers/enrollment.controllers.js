@@ -1,13 +1,29 @@
+
+import mongoose from "mongoose";
 import Enrollment from "../models/Enrollment.js";
 import Course from "../models/Course.js";
 
-export const enrollInCourse = async (req, res) => {
+const isTestMode = () => process.env.PAYMENT_MODE === "test";
+
+// Student: create a test enrollment.
+export const createEnrollment = async (req, res) => {
   try {
+    if (!isTestMode()) {
+      return res.status(503).json({
+        success: false,
+        message: "Test payment mode is disabled",
+      });
+    }
+
     const { courseId } = req.params;
 
-    const studentId = req.user._id;
+    if (!mongoose.isValidObjectId(courseId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid course ID",
+      });
+    }
 
-    // Check course
     const course = await Course.findOne({
       _id: courseId,
       status: "Published",
@@ -16,82 +32,108 @@ export const enrollInCourse = async (req, res) => {
     if (!course) {
       return res.status(404).json({
         success: false,
-        message: "Course not found",
+        message: "Published course not found",
       });
     }
 
-    // Check existing enrollment
-    const existingEnrollment = await Enrollment.findOne({
-      student: studentId,
-      course: courseId,
-    });
+    const amount = Number(course.price);
 
-    if (existingEnrollment) {
-      return res.status(409).json({
+    if (!Number.isFinite(amount) || amount < 0) {
+      return res.status(400).json({
         success: false,
-        message: "You are already enrolled in this course",
-        enrollment: existingEnrollment,
+        message: "Invalid course price",
       });
     }
 
-    // Create enrollment
-    const enrollment = await Enrollment.create({
-      student: studentId,
-      course: courseId,
+    let enrollment = await Enrollment.findOne({
+      student: req.user._id,
+      course: course._id,
     });
 
-    // Increase student count
-    await Course.findByIdAndUpdate(courseId, {
-      $inc: {
-        students: 1,
-      },
-    });
+    if (enrollment?.status === "active") {
+      if (
+        !enrollment.expiresAt ||
+        enrollment.expiresAt > new Date()
+      ) {
+        return res.status(409).json({
+          success: false,
+          message: "You are already enrolled in this course",
+          enrollment,
+        });
+      }
 
-    const populatedEnrollment = await enrollment.populate([
-      {
-        path: "student",
-        select: "name email role",
-      },
-      {
-        path: "course",
-        select: "title category level duration image price",
-      },
-    ]);
+      enrollment.status = "expired";
+      await enrollment.save();
+    }
+
+    if (!enrollment) {
+      enrollment = new Enrollment({
+        student: req.user._id,
+        course: course._id,
+      });
+    }
+
+    // All paid-course test enrollments require admin approval.
+    enrollment.amount = amount;
+    enrollment.currency = "PKR";
+    enrollment.paymentMethod = amount === 0 ? "free" : "test";
+    enrollment.transactionId =
+      amount === 0
+        ? null
+        : `TEST-${new mongoose.Types.ObjectId().toString()}`;
+
+    enrollment.paymentReviewedBy = null;
+    enrollment.paymentReviewedAt = null;
+    enrollment.rejectionReason = null;
+    enrollment.completedAt = null;
+    enrollment.expiresAt = null;
+
+    if (amount === 0) {
+      enrollment.status = "active";
+      enrollment.paymentStatus = "not_required";
+      enrollment.enrolledAt = new Date();
+    } else {
+      enrollment.status = "pending";
+      enrollment.paymentStatus = "pending";
+      enrollment.enrolledAt = null;
+    }
+
+    await enrollment.save();
 
     return res.status(201).json({
       success: true,
-      message: "Successfully enrolled in course",
-      enrollment: populatedEnrollment,
+      message:
+        amount === 0
+          ? "Free course enrollment successful"
+          : "Test enrollment created. Awaiting admin approval.",
+      enrollment,
     });
   } catch (error) {
-    console.error("Enroll Course Error:", error);
+    console.error("Create Enrollment Error:", error);
 
-    // Duplicate index protection
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: "You are already enrolled in this course",
+        message: "Enrollment already exists. Refresh and try again.",
       });
     }
 
     return res.status(500).json({
       success: false,
-      message: "Something went wrong",
+      message: "Unable to create enrollment",
     });
   }
 };
 
-
+// Student: list own enrollments.
 export const getMyEnrollments = async (req, res) => {
   try {
     const enrollments = await Enrollment.find({
       student: req.user._id,
     })
-      .populate(
-        "course",
-        "title description category level duration lessons students price image"
-      )
-      .sort({ createdAt: -1 });
+      .populate("course", "title description image price category level")
+      .sort({ createdAt: -1 })
+      .lean();
 
     return res.status(200).json({
       success: true,
@@ -103,78 +145,225 @@ export const getMyEnrollments = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Something went wrong",
+      message: "Unable to fetch enrollments",
     });
   }
 };
 
-/* GET ALL ENROLLMENTS - ADMIN */
-export const getAllEnrollmentsForAdmin = async (req, res) => {
+// Student: get own enrollment for one course.
+export const getMyCourseEnrollment = async (req, res) => {
   try {
-    const { search, status, course } = req.query;
+    const { courseId } = req.params;
 
-    const filter = {};
-
-    if (status && status !== "All") {
-      filter.status = status;
+    if (!mongoose.isValidObjectId(courseId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid course ID",
+      });
     }
 
-    if (course && course !== "All") {
-      filter.course = course;
-    }
-
-    const enrollments = await Enrollment.find(filter)
-      .populate(
-        "student",
-        "name email role isActive"
-      )
-      .populate(
-        "course",
-        "title category level price status"
-      )
-      .sort({ createdAt: -1 })
+    const enrollment = await Enrollment.findOne({
+      student: req.user._id,
+      course: courseId,
+    })
+      .populate("course", "title image price category level")
       .lean();
 
-    let filteredEnrollments = enrollments;
-
-    if (search) {
-      const searchText = search
-        .toLowerCase()
-        .trim();
-
-      filteredEnrollments =
-        enrollments.filter((enrollment) => {
-          const studentName =
-            enrollment.student?.name?.toLowerCase() || "";
-
-          const studentEmail =
-            enrollment.student?.email?.toLowerCase() || "";
-
-          const courseTitle =
-            enrollment.course?.title?.toLowerCase() || "";
-
-          return (
-            studentName.includes(searchText) ||
-            studentEmail.includes(searchText) ||
-            courseTitle.includes(searchText)
-          );
-        });
+    if (!enrollment) {
+      return res.status(404).json({
+        success: false,
+        message: "Enrollment not found",
+      });
     }
 
     return res.status(200).json({
       success: true,
-      count: filteredEnrollments.length,
-      enrollments: filteredEnrollments,
+      enrollment,
     });
   } catch (error) {
-    console.error(
-      "Get All Enrollments Error:",
-      error
-    );
+    console.error("Get Course Enrollment Error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to load enrollments",
+      message: "Unable to fetch enrollment",
+    });
+  }
+};
+
+// Admin: list pending test payments.
+export const getPendingEnrollments = async (req, res) => {
+  try {
+    if (!isTestMode()) {
+      return res.status(503).json({
+        success: false,
+        message: "Test payment mode is disabled",
+      });
+    }
+
+    const enrollments = await Enrollment.find({
+      status: "pending",
+      paymentStatus: "pending",
+      paymentMethod: "test",
+    })
+      .populate("student", "name email")
+      .populate("course", "title price category")
+      .sort({ createdAt: 1 })
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      count: enrollments.length,
+      enrollments,
+    });
+  } catch (error) {
+    console.error("Get Pending Enrollments Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to fetch pending enrollments",
+    });
+  }
+};
+
+// Admin: approve a test enrollment.
+export const approveEnrollmentPayment = async (req, res) => {
+  try {
+    if (!isTestMode()) {
+      return res.status(503).json({
+        success: false,
+        message: "Test payment mode is disabled",
+      });
+    }
+
+    const { enrollmentId } = req.params;
+
+    if (!mongoose.isValidObjectId(enrollmentId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid enrollment ID",
+      });
+    }
+
+    const enrollment = await Enrollment.findOneAndUpdate(
+      {
+        _id: enrollmentId,
+        status: "pending",
+        paymentStatus: "pending",
+        paymentMethod: "test",
+      },
+      {
+        $set: {
+          status: "active",
+          paymentStatus: "paid",
+          enrolledAt: new Date(),
+          paymentReviewedBy: req.user._id,
+          paymentReviewedAt: new Date(),
+          rejectionReason: null,
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    )
+      .populate("student", "name email")
+      .populate("course", "title price");
+
+    if (!enrollment) {
+      return res.status(404).json({
+        success: false,
+        message: "Pending test enrollment not found or already reviewed",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Test enrollment approved. Course access activated.",
+      enrollment,
+    });
+  } catch (error) {
+    console.error("Approve Enrollment Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to approve enrollment",
+    });
+  }
+};
+
+// Admin: reject a test enrollment.
+export const rejectEnrollmentPayment = async (req, res) => {
+  try {
+    if (!isTestMode()) {
+      return res.status(503).json({
+        success: false,
+        message: "Test payment mode is disabled",
+      });
+    }
+
+    const { enrollmentId } = req.params;
+    const { rejectionReason } = req.body;
+
+    if (!mongoose.isValidObjectId(enrollmentId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid enrollment ID",
+      });
+    }
+
+    if (
+      typeof rejectionReason !== "string" ||
+      !rejectionReason.trim() ||
+      rejectionReason.trim().length > 500
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Enter a rejection reason (maximum 500 characters)",
+      });
+    }
+
+    const enrollment = await Enrollment.findOneAndUpdate(
+      {
+        _id: enrollmentId,
+        status: "pending",
+        paymentStatus: "pending",
+        paymentMethod: "test",
+      },
+      {
+        $set: {
+          status: "cancelled",
+          paymentStatus: "failed",
+          paymentReviewedBy: req.user._id,
+          paymentReviewedAt: new Date(),
+          rejectionReason: rejectionReason.trim(),
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    )
+      .populate("student", "name email")
+      .populate("course", "title price");
+
+    if (!enrollment) {
+      return res.status(404).json({
+        success: false,
+        message: "Pending test enrollment not found or already reviewed",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Test enrollment rejected",
+      enrollment,
+    });
+  } catch (error) {
+    console.error("Reject Enrollment Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to reject enrollment",
     });
   }
 };

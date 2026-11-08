@@ -1,9 +1,13 @@
+
 import express from "express";
 
 import {
-  enrollInCourse,
-  getAllEnrollmentsForAdmin,
+  createEnrollment,
   getMyEnrollments,
+  getMyCourseEnrollment,
+  getPendingEnrollments,
+  approveEnrollmentPayment,
+  rejectEnrollmentPayment,
 } from "../controllers/enrollment.controllers.js";
 
 import {
@@ -13,26 +17,57 @@ import {
 
 const router = express.Router();
 
+// All routes require cookie-based JWT authentication.
+router.use(requireAuth);
+
+// ========================================
+// STUDENT ROUTES
+// ========================================
+
+// Create a dummy test enrollment.
 router.post(
-  "/courses/:courseId",
-  requireAuth,
+  "/course/:courseId",
   requireRole("student"),
-  enrollInCourse
+  createEnrollment
 );
 
+// Get logged-in student's enrollments.
 router.get(
   "/my",
-  requireAuth,
   requireRole("student"),
   getMyEnrollments
 );
 
-// ADMIN
+// Get enrollment status for a particular course.
 router.get(
-  "/admin",
-  requireAuth,
+  "/my/course/:courseId",
+  requireRole("student"),
+  getMyCourseEnrollment
+);
+
+// ========================================
+// ADMIN ROUTES
+// ========================================
+
+// List pending test enrollments.
+router.get(
+  "/admin/pending",
   requireRole("admin"),
-  getAllEnrollmentsForAdmin
+  getPendingEnrollments
+);
+
+// Approve a pending test enrollment.
+router.patch(
+  "/admin/:enrollmentId/approve",
+  requireRole("admin"),
+  approveEnrollmentPayment
+);
+
+// Reject a pending test enrollment.
+router.patch(
+  "/admin/:enrollmentId/reject",
+  requireRole("admin"),
+  rejectEnrollmentPayment
 );
 
 export default router;
