@@ -24,6 +24,13 @@ router.use(requireAuth);
 // STUDENT ROUTES
 // ========================================
 
+// Get logged-in student's enrollments.
+router.get(
+  "/my",
+  requireRole("student"),
+  getMyEnrollments
+);
+
 // Create a dummy test enrollment.
 router.post(
   "/course/:courseId",
